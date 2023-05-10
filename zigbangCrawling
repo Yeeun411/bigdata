@@ -1,0 +1,118 @@
+## import requests
+import json
+import pandas as pd
+
+# 서울 서부 지역(대략)의 빌라, 투룸 이상 매물의 정보를 크롤링
+
+url = 'https://apis.zigbang.com/v2/items/{}?domain=zigbang&version='  #직방의 빌라, 투룸 정보의 기본 api
+ownerSeachUrl = 'https://apis.zigbang.com/v2/agents/{}?service_type=빌라' #직방의 공인중계사 정보 api
+geohash = 'https://apis.zigbang.com/v2/items?domain=zigbang&geohash={}&needHasNoFiltered=true&new_villa=true&sales_type_in={}&zoom=15'  #직방의 geohash 위치에 따른 매물 정보 api 
+seoulEastGeohash = ['wydjw', 'wydjq', 'wydjr', 'wydm2', 'wydm0']    #대략 서울 서부 지역 geohash 값
+
+def getListFromGeohash(location, sales_type):   #geohash 위치로부터 item id list 얻어오기
+    geohashUrl = geohash.format(location, sales_type)
+
+    req = requests.get(geohashUrl)
+
+    if req.status_code == 200:
+        try:
+            result = req.json()
+            return result
+        except json.JSONDecodeError as jsonError:
+            print(jsonError)
+            return False
+    else:
+        print('List를 가져오지 못함!\n')
+        return False
+
+def searchURL(itemID):  #api로 매물 찾기
+
+    searchUrl = url.format(str(itemID))
+
+    req = requests.get(searchUrl)
+
+    if req.status_code == 200:
+        try:
+            result = req.json()
+            return result
+        except json.JSONDecodeError as jsonError:
+            print(jsonError)
+            return False
+    else:
+        print("item id에 해당하는 매물이 없음!\n")
+        return False
+
+def searchOwnerID(userID):  #api로 공인중계사 사업자등록번호 찾기
+    searchUrl = ownerSeachUrl.format(str(userID))
+
+    req = requests.get(searchUrl)
+
+    if req.status_code == 200:
+        try:
+            result = req.json()
+            return result
+        except json.JSONDecodeError as jsonError:
+            print(jsonError)
+            return False
+    else:
+        print('공인중계사 정보 탐색 실패!\n')
+        return False
+
+count = 0   #성공적으로 찾은 매물 갯수
+house_info = [] #성공적으로 찾은 매물들의 정보
+
+
+for geohash_value in seoulEastGeohash:
+    for salesType in ['전세', '월세', '매매']:
+        geohash_list = getListFromGeohash(geohash_value, salesType)
+        items = geohash_list['items']
+
+        for item in items:
+            itemID = item['item_id']
+            result = searchURL(itemID)
+
+            if result != False: #매물을 성공적으로 찾았다면 필요한 정보 뽑아내기
+                if result['item']['jibunAddress'] == None:  #지번이 없는 경우
+                    address = result['item']['addressOrigin']['local1'] + ' ' + result['item']['addressOrigin']['local2']   #집주소
+                    jibunAddress = None #지번
+                else:   #지번이 있는 경우
+                    address = result['item']['addressOrigin']['local1'] + ' ' + result['item']['addressOrigin']['local2']   #집주소
+                    jibunAddress = result['item']['jibunAddress']  #지번
+
+                approve_date = result['item']['approve_date'] #준공허가 날짜
+                sales_type = result['item']['sales_type']   #매물 전세, 월세, 매매 구분
+                floor = result['item']['floor'] + '층' #층
+                guarentee = str(result['item']['보증금액'])  #보증금
+                monthly_price = str(result['item']['월세금액'])  #월세금
+                sales_price = str(result['item']['매매금액'])    #매매금
+                updated_at = result['item']['updated_at']   #매물의 직방 최근 업데이트 날짜
+                status_at = result['item']['상태확인At']    #매물의 직방 최초 계시 날짜
+                suggest_item = result['tags'] #직방 추천 매물
+        
+                user_no = result['item']['user_no'] #공인중계사 직방 id
+                owner_info = searchOwnerID(user_no) #공인중계사 정보 찾기
+
+                if owner_info != False: #공인중계사 정보를 성공적으로 찾았다면 필요한 정보 뽑아내기
+                    agent_name = owner_info['agent_name']   #공인중계사 사명
+                    agent_address = owner_info['address']   #공인중계사 주소
+                    agent_regid = owner_info['agent_regid'] #공인중계사의 사업자등록번호
+
+                    house_info.append([address] + [jibunAddress] + [approve_date] + [sales_type] + [floor] + [guarentee] + [monthly_price] + [sales_price]
+                                        + [updated_at] + [status_at] + [suggest_item] + [agent_name] + [agent_address] + [agent_regid])
+
+                else:   #공인중계사 정보를 못 찾았다면 공인중계사 정보 부분은 None으로 처리
+                    house_info.append([address] + [jibunAddress] + [approve_date] + [sales_type] + [floor] + [guarentee] + [monthly_price] + [sales_price]
+                                        + [updated_at] + [status_at] + [suggest_item] + [None] + [None] + [None])
+
+                count += 1
+
+                print(count, ': ' + address)
+
+
+print('찾은 총 매물 수: ', count)
+
+zigBangHouseInfo_tbl = pd.DataFrame(house_info, columns = ('집 주소', '지번', '준공 허가 날짜', '매물 구분', '층 위치', '보증금', '월세 금액', '매매 금액', 
+                                                           '최근 업데이트 날짜', '최초 계시 날짜', '추천 매물 구분', '공인중계사', 
+                                                           '공인중계사 주소', '공인중계사 사업자 등록 번호'))
+
+zigBangHouseInfo_tbl.to_csv('./매물 정보.csv', encoding = 'cp949', mode = 'w', index = True)

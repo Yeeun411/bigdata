@@ -1,0 +1,30 @@
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+%matplotlib inline
+
+plt.rcParams['font.family'] = 'AppleGothic'
+
+houseData = pd.read_csv('./매물 정보.csv', encoding = 'cp949', index_col = 0)
+
+junseData = houseData[houseData['매물 구분'] == '전세'].astype({'보증금': 'int'})
+wolseData = houseData[houseData['매물 구분'] == '월세'].astype({'보증금': 'int', '월세 금액': 'int'})
+memeData = houseData[houseData['매물 구분'] == '매매'].astype({'매매 금액': 'int'})
+
+plt.figure(figsize = (15, 10))
+sns.boxplot(data = junseData, x = '집 주소', y = '보증금').set_title('전세')
+plt.show()
+
+plt.figure(figsize = (15, 10))
+sns.boxplot(data = wolseData, x = '집 주소', y = '보증금').set_title('월세 - 보증금')
+plt.show()
+
+plt.figure(figsize = (15, 10))
+sns.boxplot(data = wolseData, x = '집 주소', y = '월세 금액').set_title('월세 - 월세금')
+plt.show()
+
+plt.figure(figsize = (15, 10))
+sns.boxplot(data = memeData, x = '집 주소', y = '매매 금액').set_title('매매')
+plt.show()

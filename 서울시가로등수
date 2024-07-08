@@ -1,0 +1,79 @@
+import geopandas as gpd
+import pandas as pd
+from shapely.geometry import Point
+import os
+
+# 로드된 데이터프레임에서 구별 가로등 수를 계산하는 함수
+def calculate_total_streetlights(streetlight_count_per_district):
+    return streetlight_count_per_district['가로등 수'].sum()
+
+# Google Colab에서 파일 업로드
+from google.colab import files
+uploaded = files.upload()
+
+# 업로드된 파일들을 확인
+uploaded_files = list(uploaded.keys())
+
+# SHP 파일과 관련된 파일들을 같은 디렉토리에 저장
+directory_path = '/content/shp_files'
+os.makedirs(directory_path, exist_ok=True)
+
+for file_name in uploaded_files:
+    if file_name.endswith('.shp') or file_name.endswith('.shx') or file_name.endswith('.dbf') or file_name.endswith('.prj') or file_name.endswith('.cpg'):
+        with open(os.path.join(directory_path, file_name), 'wb') as f:
+            f.write(uploaded[file_name])
+
+# CSV 파일 로드
+csv_file_path = None
+for file_name in uploaded_files:
+    if file_name.endswith('.csv'):
+        csv_file_path = file_name
+        break
+
+# SHP 파일 경로
+shp_file_path = os.path.join(directory_path)
+
+# GeoPandas를 사용하여 SHP 파일 로드
+gdf = gpd.read_file(shp_file_path)
+
+# SHP 파일의 CRS 확인
+print("SHP 파일의 CRS:", gdf.crs)
+
+# CSV 파일 로드
+streetlight_data = pd.read_csv(csv_file_path)
+
+# 위도, 경도를 GeoDataFrame으로 변환
+geometry = [Point(xy) for xy in zip(streetlight_data['경도'], streetlight_data['위도'])]
+streetlight_gdf = gpd.GeoDataFrame(streetlight_data, crs="EPSG:4326", geometry=geometry)
+
+# streetlight_gdf의 좌표계를 SHP 파일의 좌표계로 변환
+streetlight_gdf = streetlight_gdf.to_crs(gdf.crs)
+
+# '구' 할당 함수 정의
+def assign_gu(point, gdf):
+    for _, row in gdf.iterrows():
+        if row['geometry'].contains(point):
+            return row['SGG_NM']  # 'SGG_NM' 열을 사용하여 구 이름 할당
+    return None
+
+# 각 가로등 데이터에 '구' 할당
+streetlight_gdf['구'] = streetlight_gdf['geometry'].apply(lambda point: assign_gu(point, gdf))
+
+# 구별 가로등 수 계산
+streetlight_count_per_district = streetlight_gdf['구'].value_counts().reset_index()
+streetlight_count_per_district.columns = ['구', '가로등 수']
+
+# 결과 출력
+print(streetlight_count_per_district)
+
+# 구별 가로등 수의 총합 계산
+total_streetlights = calculate_total_streetlights(streetlight_count_per_district)
+print(f"총 가로등 수: {total_streetlights}")
+
+# 결과를 CSV 파일로 저장
+output_csv_file_path = '/content/streetlight_count_per_district.csv'
+streetlight_count_per_district.to_csv(output_csv_file_path, index=False)
+
+# CSV 파일 다운로드 링크 제공
+from google.colab import files
+files.download(output_csv_file_path)
